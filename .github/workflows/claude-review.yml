@@ -44,7 +44,8 @@ jobs:
             donnée client dans un log ; URL de service codée en dur.
             Rends un tableau Markdown Fichier | Constat | Gravité, puis un verdict en une ligne.
             N'invente aucune ligne absente du diff." \
-            --allowedTools "Read,Grep,Glob" --max-turns 15 > review.md
+            --allowedTools "Read,Grep,Glob" --max-turns 15 > review.md \
+            || { echo "::error::claude a échoué :"; cat review.md; exit 1; }
 
       - name: Revue du SQL des migrations (si une migration a changé)
         env:
