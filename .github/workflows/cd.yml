@@ -1,0 +1,103 @@
+# Livraison continue de l'ecommerce-app.
+#
+# - Déclenchée à la fin du workflow « CI », uniquement si elle est verte sur un push vers main.
+# - Job « deploy-staging »    : déploiement automatique en staging.
+# - Job « deploy-production » : déploiement en production, uniquement sur déclenchement manuel
+#                               (Actions → CD → Run workflow, branche main).
+#
+# ⚠ Le plan GitHub Free ne permet pas les Required reviewers sur un dépôt privé : l'environnement
+#   « production » n'a aucune protection. Le gate humain est donc le déclenchement manuel.
+#   Avec un plan qui le permet, ajouter un relecteur à l'environnement et rebrancher
+#   deploy-production sur deploy-staging.
+#
+# ⚠ workflow_run n'utilise que la version de ce fichier présente sur la branche par défaut :
+#   il ne se déclenche qu'une fois mergé sur main.
+#
+# Les étapes de déploiement sont des echo en attendant le chart Helm (lab 09).
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI] # doit correspondre exactement au « name: » de ci.yml
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: # seul déclencheur de deploy-production
+
+# Moindre privilège : lecture seule du code, aucun secret utilisé.
+permissions:
+  contents: read
+
+# Les déploiements se sérialisent et ne sont jamais interrompus en plein vol.
+concurrency:
+  group: cd-main
+  cancel-in-progress: false
+
+env:
+  # Le commit exact validé par la CI (et non le HEAD courant de main) ; en manuel, le commit lancé.
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  deploy-staging:
+    name: Déployer en staging
+    # CI verte, sur un push (pas une PR), depuis ce dépôt (pas un fork dont la branche s'appellerait main).
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: staging
+    steps:
+      - name: Récupérer le commit validé par la CI
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Résumé
+        env:
+          CI_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          echo "Commit déployé : $DEPLOY_SHA"
+          echo "Run CI source  : $CI_RUN_URL"
+
+      # Lab 09 : remplacer par
+      #   helm upgrade --install ecommerce helm/ecommerce \
+      #     --namespace ecommerce-staging --create-namespace \
+      #     -f helm/ecommerce/values-staging.yaml \
+      #     --set image.tag="$DEPLOY_SHA" \
+      #     --wait --atomic --timeout 5m
+      - name: Déployer en staging
+        run: echo "TODO lab 09 — helm upgrade staging ($DEPLOY_SHA)"
+
+      # Lab 09 : remplacer par un appel aux endpoints de santé, ex.
+      #   curl --fail --retry 5 --retry-delay 5 https://staging.example/health
+      - name: Smoke test staging
+        run: echo "TODO lab 09 — smoke test staging"
+
+  deploy-production:
+    name: Déployer en production
+    # Jamais enchaîné automatiquement : un humain lance le workflow à la main, depuis main uniquement.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+    steps:
+      - name: Récupérer le commit validé par la CI
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      # Lab 09 : remplacer par
+      #   helm upgrade --install ecommerce helm/ecommerce \
+      #     --namespace ecommerce-production --create-namespace \
+      #     -f helm/ecommerce/values-production.yaml \
+      #     --set image.tag="$DEPLOY_SHA" \
+      #     --wait --atomic --timeout 10m
+      - name: Déployer en production
+        run: echo "TODO lab 09 — helm upgrade production ($DEPLOY_SHA)"
+
+      # Lab 09 : remplacer par un appel aux endpoints de santé de production.
+      - name: Smoke test production
+        run: echo "TODO lab 09 — smoke test production"

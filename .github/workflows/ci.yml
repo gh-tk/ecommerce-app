@@ -1,0 +1,79 @@
+# Intégration continue de l'ecommerce-app.
+#
+# - Job « build-test » : restore, build Release et tests de toute la solution
+#                        (les tests du catalogue lancent un vrai PostgreSQL via Testcontainers).
+#
+# Aucun déploiement, aucune image, aucun secret dans ce workflow.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Moindre privilège par défaut : lecture seule du code. Chaque job ne rajoute que ce dont il a besoin.
+permissions:
+  contents: read
+
+# Un nouveau push sur la même branche / PR annule le run devenu obsolète.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build-test:
+    name: Build et tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      checks: write # nécessaire pour publier le rapport de tests en check run
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer le SDK .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      - name: Restaurer les dépendances
+        run: dotnet restore ECommerce.slnx
+
+      - name: Compiler en Release
+        run: dotnet build ECommerce.slnx --configuration Release --no-restore
+
+      # Docker est présent sur ubuntu-latest : Testcontainers y démarre postgres:17-alpine sans config.
+      - name: Exécuter les tests
+        run: >-
+          dotnet test ECommerce.slnx
+          --configuration Release
+          --no-build
+          --logger trx
+          --results-directory TestResults
+
+      # Publié même si les tests échouent, pour pouvoir diagnostiquer.
+      - name: Publier les résultats bruts (artefact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/**/*.trx
+          if-no-files-found: warn
+
+      # Les PR venant d'un fork n'ont pas le droit checks: write : on n'y publie que l'artefact.
+      - name: Publier le rapport de tests
+        if: always() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: dorny/test-reporter@v2
+        with:
+          name: Tests
+          path: TestResults/**/*.trx
+          reporter: dotnet-trx
+          fail-on-error: false # l'échec des tests fait déjà échouer l'étape « Exécuter les tests »
