@@ -1,0 +1,77 @@
+# Pile de développement de l'ecommerce-app — équivalent conteneurisé de l'AppHost Aspire.
+#   cp .env.example .env   # puis renseigner POSTGRES_PASSWORD (.env n'est pas versionné)
+#   docker compose up -d --build
+# Sans POSTGRES_PASSWORD (absent ou vide), compose refuse de démarrer.
+# Seul web publie un port : http://localhost:8080
+
+name: ecommerce
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: catalog
+      POSTGRES_DB: catalogdb
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant ou vide - copiez .env.example en .env et renseignez-le}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # $$ : variables développées par le shell du conteneur, pas par compose.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  catalog:
+    build:
+      context: .
+      dockerfile: src/ECommerce.Catalog.Api/Dockerfile
+    image: ecommerce-catalog:dev
+    environment:
+      # Development : Catalog applique ses migrations EF (et le seed) au démarrage.
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__catalogdb: Host=postgres;Port=5432;Database=catalogdb;Username=catalog;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant ou vide - copiez .env.example en .env et renseignez-le}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Les images chiselées n'ont ni shell ni curl : pas de healthcheck possible, depends_on simple.
+  # La découverte de services Aspire (https+http://<nom>) est résolue par services__<nom>__http__0.
+  ordering:
+    build:
+      context: .
+      dockerfile: src/ECommerce.Ordering.Api/Dockerfile
+    image: ecommerce-ordering:dev
+    environment:
+      services__catalog__http__0: http://catalog:8080
+    depends_on:
+      - catalog
+
+  gateway:
+    build:
+      context: .
+      dockerfile: src/ECommerce.Gateway/Dockerfile
+    image: ecommerce-gateway:dev
+    environment:
+      services__catalog__http__0: http://catalog:8080
+      services__ordering__http__0: http://ordering:8080
+    depends_on:
+      - catalog
+      - ordering
+
+  web:
+    build:
+      context: .
+      dockerfile: src/ECommerce.Web/Dockerfile
+    image: ecommerce-web:dev
+    # Reste en Production : en Development, les assets statiques sont cherchés sur l'hôte (404).
+    environment:
+      services__gateway__http__0: http://gateway:8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      - gateway
+
+volumes:
+  pgdata:

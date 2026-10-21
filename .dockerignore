@@ -1,0 +1,27 @@
+# Sorties de build : un obj/ de l'hôte (Windows) casse le restore dans le conteneur
+**/bin/
+**/obj/
+**/TestResults/
+artifacts/
+publish/
+
+# Secrets et fichiers locaux — jamais dans le contexte
+.env
+**/.env
+**/*.env
+**/secrets.json
+**/*.pfx
+**/*.user
+**/appsettings.*.local.json
+
+# Outillage et métadonnées hors build
+.git/
+.github/
+.claude/
+.vs/
+.vscode/
+.idea/
+tests/
+**/*.md
+**/Dockerfile*
+.dockerignore
