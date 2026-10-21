@@ -2,12 +2,13 @@
 #
 # - Déclenchée à la fin du workflow « CI », uniquement si elle est verte sur un push vers main.
 # - Job « deploy-staging »    : déploiement automatique en staging.
-# - Job « deploy-production » : déploiement en production derrière l'environnement protégé
-#                               « production » (approbation humaine requise).
+# - Job « deploy-production » : déploiement en production, uniquement sur déclenchement manuel
+#                               (Actions → CD → Run workflow, branche main).
 #
-# ⚠ Le gate de production repose sur la configuration GitHub (Settings → Environments → production) :
-#   Required reviewers (≥ 1) et Deployment branches = main. Sans cette configuration,
-#   l'environnement est créé à la volée SANS protection.
+# ⚠ Le plan GitHub Free ne permet pas les Required reviewers sur un dépôt privé : l'environnement
+#   « production » n'a aucune protection. Le gate humain est donc le déclenchement manuel.
+#   Avec un plan qui le permet, ajouter un relecteur à l'environnement et rebrancher
+#   deploy-production sur deploy-staging.
 #
 # ⚠ workflow_run n'utilise que la version de ce fichier présente sur la branche par défaut :
 #   il ne se déclenche qu'une fois mergé sur main.
@@ -20,6 +21,7 @@ on:
     workflows: [CI] # doit correspondre exactement au « name: » de ci.yml
     types: [completed]
     branches: [main]
+  workflow_dispatch: # seul déclencheur de deploy-production
 
 # Moindre privilège : lecture seule du code, aucun secret utilisé.
 permissions:
@@ -31,8 +33,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Le commit exact validé par la CI (et non le HEAD courant de main).
-  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+  # Le commit exact validé par la CI (et non le HEAD courant de main) ; en manuel, le commit lancé.
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   deploy-staging:
@@ -75,10 +77,10 @@ jobs:
 
   deploy-production:
     name: Déployer en production
-    needs: deploy-staging
+    # Jamais enchaîné automatiquement : un humain lance le workflow à la main, depuis main uniquement.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Le job reste « Waiting for review » jusqu'à l'approbation d'un relecteur de l'environnement.
     environment:
       name: production
     steps:
