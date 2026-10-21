@@ -1,9 +1,7 @@
 # Intégration continue de l'ecommerce-app.
 #
-# - Job « build-test »        : restore, build Release et tests de toute la solution
-#                               (les tests du catalogue lancent un vrai PostgreSQL via Testcontainers).
-# - Job « migrations-script » : script SQL idempotent des migrations du catalogue, publié en artefact
-#                               pour relecture avant application.
+# - Job « build-test » : restore, build Release et tests de toute la solution
+#                        (les tests du catalogue lancent un vrai PostgreSQL via Testcontainers).
 #
 # Aucun déploiement, aucune image, aucun secret dans ce workflow.
 name: CI
@@ -79,43 +77,3 @@ jobs:
           path: TestResults/**/*.trx
           reporter: dotnet-trx
           fail-on-error: false # l'échec des tests fait déjà échouer l'étape « Exécuter les tests »
-
-  migrations-script:
-    name: Script SQL des migrations du catalogue
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - name: Récupérer le code
-        uses: actions/checkout@v4
-
-      - name: Installer le SDK .NET 10
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-          cache: true
-          cache-dependency-path: '**/*.csproj'
-
-      # Version alignée sur Microsoft.EntityFrameworkCore.Design du projet catalogue.
-      - name: Installer dotnet-ef
-        run: dotnet tool install --global dotnet-ef --version 10.0.9
-
-      # CatalogDbContextFactory (design-time) fournit le contexte : aucune connexion à une base.
-      # --idempotent : chaque migration est gardée par un test sur __EFMigrationsHistory,
-      # le script peut donc être rejoué sur une base à n'importe quelle version.
-      - name: Générer le script SQL idempotent
-        run: >-
-          dotnet ef migrations script
-          --idempotent
-          --project src/ECommerce.Catalog.Api
-          --context CatalogDbContext
-          --configuration Release
-          --output artifacts/catalog-migrations.sql
-
-      - name: Publier le script (artefact)
-        uses: actions/upload-artifact@v4
-        with:
-          name: catalog-migrations-sql
-          path: artifacts/catalog-migrations.sql
-          if-no-files-found: error
